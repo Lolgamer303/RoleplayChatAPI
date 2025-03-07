@@ -29,8 +29,8 @@ chat = client.chats.create(
     model='gemini-2.0-flash',
     history=context,
 )
-
+message = "From now on, you are in front of your player. start the game."
 while True:
-    message = input("You: ")
     response = chat.send_message(message)
     print(f"Vi: {response.text}")
+    message = input("You: ")
