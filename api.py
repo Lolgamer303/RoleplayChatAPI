@@ -1,7 +1,15 @@
+from flask import Flask, request, jsonify
 from google import genai
 from google.genai import types
+import os
 
-client = genai.Client(api_key="AIzaSyDJiVc4LLW8RK4HGJcLTlAKxY913oTZD0Y")
+app = Flask(__name__)
+
+API_KEY = os.environ.get('API_KEY')
+if not API_KEY:
+    raise ValueError("No API_KEY found for Flask application")
+
+client = genai.Client(api_key=API_KEY)
 
 context = [
     types.Content(role='user', parts=[
@@ -103,8 +111,16 @@ chat = client.chats.create(
     model='gemini-2.0-flash',
     history=context,
 )
-message = "From now on, start the game."
-while True:
-    response = chat.send_message(message)
-    print(f"Game master: {response.text}")
-    message = input("You: ")
+message= "From now on, start the game."
+
+@app.route('/dm', methods=['POST'])
+def game_master():
+    user_input = request.json.get('input', '')
+    if user_input not in ['1', '2', '3', '4', '5']:
+        return jsonify({'error': 'Invalid input. Please select a number from 1 to 5.'}), 400
+    
+    response = chat.send_message(user_input)
+    return jsonify({'response': response.text})
+
+if __name__ == '__main__':
+    app.run(debug=True)
