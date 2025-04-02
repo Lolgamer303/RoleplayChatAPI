@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
 from google import genai
 from google.genai import types
+from sqlalchemy.sql import text
 import os
 
 app = Flask(__name__)
@@ -8,6 +10,14 @@ app = Flask(__name__)
 API_KEY = os.environ.get('API_KEY')
 if not API_KEY:
     raise ValueError("No API_KEY found for Flask application")
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise ValueError("No DATABASE_URL found for Flask application")
+
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
+
+db = SQLAlchemy(app)
 
 client = genai.Client(api_key=API_KEY)
 
@@ -115,6 +125,11 @@ message= "From now on, start the game."
 
 @app.route('/dm', methods=['POST'])
 def game_master():
+    user_key = request.json.get('key', '')
+    try:
+        db.Query(text("SELECT * FROM users WHERE api_key = :key"), key=user_key)
+    except:
+        return jsonify({'error': 'Invalid API key.'}), 400
     user_input = request.json.get('input', '')
     if user_input not in ['1', '2', '3', '4', '5']:
         return jsonify({'error': 'Invalid input. Please select a number from 1 to 5.'}), 400
