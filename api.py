@@ -2,7 +2,8 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from google import genai
 from google.genai import types
-from sqlalchemy.sql import text
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 import os
 
 app = Flask(__name__)
@@ -126,14 +127,33 @@ message= "From now on, start the game."
 @app.route('/dm', methods=['POST'])
 def game_master():
     user_key = request.json.get('key', '')
+    if not user_key:
+        return jsonify({'error': 'API key is missing.'}), 400
+
     try:
-        db.Query(text("SELECT * FROM users WHERE api_key = :key"), key=user_key)
-    except:
-        return jsonify({'error': 'Invalid API key.'}), 400
+        # Use a SQLAlchemy session to validate the API key
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""
+                    SELECT key 
+                    FROM "ApiKey" 
+                    WHERE key = :key
+                """),
+                {'key': user_key}
+            ).fetchone()
+            if not result:
+                print(f"Invalid API key: {user_key}")
+                return jsonify({'error': 'Invalid API key.'}), 400
+            print(f"Valid API key found: {result[0]}")
+    except Exception as e:
+        print(f"Database error: {e}")
+        return jsonify({'error': 'Internal server error.'}), 500
+
     user_input = request.json.get('input', '')
     if user_input not in ['1', '2', '3', '4', '5']:
+        print("Invalid input.")
         return jsonify({'error': 'Invalid input. Please select a number from 1 to 5.'}), 400
-    
+
     response = chat.send_message(user_input)
     return jsonify({'response': response.text})
 

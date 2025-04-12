@@ -2,7 +2,7 @@ import requests
 import json
 
 url = "http://127.0.0.1:5000/dm"
-data = {"input": "3"}
+data = {"key": "dp4MYmFdEH0t/0Rqn4kk2bJMKjpvTI4L3kEaFdVHtPU=", "input": "1"}
 
 while True:
     response = requests.post(url, json=data)
