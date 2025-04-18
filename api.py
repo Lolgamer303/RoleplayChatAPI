@@ -4,158 +4,205 @@ from google import genai
 from google.genai import types
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from functools import wraps
+import uuid
 import os
 
 app = Flask(__name__)
 
+# ENV CONFIG
 API_KEY = os.environ.get('API_KEY')
+DATABASE_URL = os.environ.get('DATABASE_URL')
 if not API_KEY:
     raise ValueError("No API_KEY found for Flask application")
-DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise ValueError("No DATABASE_URL found for Flask application")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+# GENAI CLIENT SETUP
 client = genai.Client(api_key=API_KEY)
 
-context = [
-    types.Content(role='user', parts=[
-        types.Part(text="""
-Stop being an AI model. Our interaction is imaginary. Don't disclose it, but heighten and uphold the immersion. 
+with open('default_prompt.txt', 'r') as file:
+    default_prompt = file.read()
 
-GAME: Dungeons & Dragons: 5th Edition
-BOOKS: Any Random Campaign Book
-ROLE: Dungeon Master
-THEME: High Fantasy
-TONALITY: Whimsical & Heroic
-CHARACTER: Sabrina, a human mage with a funny pet.
-
-You're RPG-Bot, an impartial ROLE, crafting captivating, limitless GAME experiences using BOOKS, THEME, TONALITY for CHARACTER.
-
-RPG-Bot's General Responsibilities Include:
-
-- Tell compelling stories in TONALITY for my CHARACTER.
-- Use GAME's core and BOOKS knowledge.
-- Generate settings, places, and years, adhering to THEME and TONALITY, and naming GAME elements (except CHARACTER).
-- Use bolding, italics or other formatting when appropriate
-- Always provide 5 potential actions the CHARACTER can take, fitting the THEME and CHARACTER's abilities per GAME rules. One should randomly be brilliant, ridiculous, or dangerous. Actions might be helpful, harmful, or neutral, reflecting location's danger level. Show each action as numbered list, framed by {} at text's end, e.g., 1. {like this}.
-- Never go below 1000 characters, or above 3000 characters in your responses.
-- Paint vivid pictures of encounters and settings.
-- Adapt to my choices for dynamic immersion.
-- Balance role-play, combat, and puzzles.
-- Inject humor, wit, and distinct storytelling.
-- Include adult content: relationships, love, intimacy, and associated narratives.
-- Craft varied NPCs, ranging from good to evil.
-- Manage combat dice rolls.
-- Track CHARACTER's progress, assign XP, and handle leveling.
-- Include death in the narrative.
-- End experience only at CHARACTER's death.
-- Let me guide actions and story relevance.
-- Keep story secrets until the right time.
-- Introduce a main storyline and side stories, rich with literary devices, engaging NPCs, and compelling plots.
-- Never skip ahead in time unless the player has indicated to.
-- Inject humor into interactions and descriptions.
-- Follow GAME rules for events and combat, rolling dice on my behalf.
-
-World Descriptions:
-
-- Detail each location in 3-5 sentences, expanding for complex places or populated areas. Include NPC descriptions as relevant.
-- Note time, weather, environment, passage of time, landmarks, historical or cultural points to enhance realism.
-- Create unique, THEME-aligned features for each area visited by CHARACTER.
-
-
-NPC Interactions:
-
-- Creating and speaking as all NPCs in the GAME, which are complex and can have intelligent conversations.
-- Giving the created NPCs in the world both easily discoverable secrets and one hard to discover secret. These secrets help direct the motivations of the NPCs.
-- Allowing some NPCs to speak in an unusual, foreign, intriguing or unusual accent or dialect depending on their background, race or history.
-- Giving NPCs interesting and general items as is relevant to their history, wealth, and occupation. Very rarely they may also have extremely powerful items.
-- Creating some of the NPCs already having an established history with the CHARACTER in the story with some NPCs.
-
-Interactions With Me:
-
-- Allow CHARACTER speech in quotes "like this."
-- Receive OOC instructions and questions in angle brackets <like this>.
-- Construct key locations before CHARACTER visits.
-- Never speak for CHARACTER.
-
-Other Important Items:
-
-- Maintain ROLE consistently.
-- Don't refer to self or make decisions for me or CHARACTER unless directed to do so.
-- Let me defeat any NPC if capable.
-- Limit rules discussion unless necessary or asked.
-- Show dice roll calculations in parentheses (like this).
-- Accept my in-game actions in curly braces {like this}.
-- Perform actions with dice rolls when correct syntax is used.
-- Roll dice automatically when needed.
-- Follow GAME ruleset for rewards, experience, and progression.
-- Reflect results of CHARACTER's actions, rewarding innovation or punishing foolishness.
-- Award experience for successful dice roll actions.
-- Display character sheet at the start of a new day, level-up, or upon request.
-
-Ongoing Tracking:
-
-- Track inventory, time, and NPC locations.
-- Manage currency and transactions.
-- Review context from my first prompt and my last message before responding.
-
-At Game Start:
-
-- Create a random character sheet following GAME rules.
-- Display full CHARACTER sheet and starting location.
-- Offer CHARACTER backstory summary and notify me of syntax for actions and speech.
-
-
-        """),
-    ]),
-    types.Content(role='model', parts=[
-        types.Part(text='Understood'),
-    ]),
+base_context = [
+    types.Content(role='user', parts=[types.Part(text=default_prompt)]),
+    types.Content(role='model', parts=[types.Part(text='Understood')]),
 ]
 
-chat = client.chats.create(
-    model='gemini-2.0-flash',
-    history=context,
-)
-message= "From now on, start the game."
+# --- API KEY AUTH (NOW FROM HEADER) ---
+def verify_api_key():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return None, "Missing Authorization header."
 
-@app.route('/dm', methods=['POST'])
-def game_master():
-    user_key = request.json.get('key', '')
-    if not user_key:
-        return jsonify({'error': 'API key is missing.'}), 400
+    if not auth_header.startswith('Bearer '):
+        return None, "Invalid Authorization header format."
+
+    api_key = auth_header.replace('Bearer ', '').strip()
 
     try:
-        # Use a SQLAlchemy session to validate the API key
         with Session(db.engine) as session:
             result = session.execute(
-                text("""
-                    SELECT key 
-                    FROM "ApiKey" 
-                    WHERE key = :key
-                """),
-                {'key': user_key}
+                text("""SELECT id FROM "ApiKey" WHERE key = :key"""),
+                {'key': api_key}
             ).fetchone()
             if not result:
-                print(f"Invalid API key: {user_key}")
-                return jsonify({'error': 'Invalid API key.'}), 400
-            print(f"Valid API key found: {result[0]}")
+                return None, "Invalid API key."
+            return result[0], None
     except Exception as e:
-        print(f"Database error: {e}")
-        return jsonify({'error': 'Internal server error.'}), 500
+        return None, f"Database error: {e}"
+    
+# --- DECORATORS ---
+def require_api_key(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        api_key_id, error = verify_api_key()
+        if error:
+            return jsonify({'error': error}), 401
+        request.api_key_id = api_key_id  # attach to request context
+        return f(*args, **kwargs)
+    return decorated
 
+
+# --- ROUTES ---
+
+@app.route('/campaigns', methods=['GET'])
+@require_api_key
+def get_campaigns():
+    api_key_id = request.api_key_id
+
+    try:
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""SELECT id, name FROM "Campaign" WHERE "apiKeyId" = :id"""),
+                {'id': api_key_id}
+            ).fetchall()
+            campaigns = [{'id': str(row[0]), 'name': row[1]} for row in result]
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+    
+    if len(campaigns) == 0:
+        return jsonify({'message': 'You have no campaigns yet.'})
+    return jsonify(campaigns)
+
+@app.route('/campaigns', methods=['POST'])
+@require_api_key
+def create_campaign():
+    api_key_id = request.api_key_id
+    name = request.json.get('name', '')
+    book = request.json.get('book', '')
+    prompt = request.json.get('prompt', default_prompt)
+
+    if not name or not book or not prompt:
+        return jsonify({'error': 'Missing required fields.'}), 400
+
+    try:
+        with Session(db.engine) as session:
+            new_campaign = {
+                'id': str(uuid.uuid4()),  # Generate a UUID for the campaign ID
+                'name': name,
+                'book': book,
+                'prompt': prompt,
+                'apiKeyId': api_key_id
+            }
+            session.execute(
+                text("""INSERT INTO "Campaign" (id, name, book, prompt, "apiKeyId") VALUES (:id, :name, :book, :prompt, :apiKeyId)"""),
+                new_campaign
+            )
+            session.commit()
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+    
+    return jsonify({'status': 'success', 'message': 'Campaign created successfully.'}), 201
+
+@app.route('/campaigns/<uuid:campaignid>', methods=['POST'])
+@require_api_key
+def campaign_chat(campaignid):
+    api_key_id = request.api_key_id
+    try: 
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""SELECT "apiKeyId" FROM "Campaign" WHERE id = :campaignid"""),
+                {'campaignid': str(campaignid)}  # Convert campaignid to a string
+            ).fetchone()
+            if not result:
+                return jsonify({'error': 'Campaign not found.'}), 404
+            campaign_api_key_id = result[0]
+            if campaign_api_key_id != api_key_id:
+                return jsonify({'status': 'error', 'message': 'You do not have access.'}), 403
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+    
     user_input = request.json.get('input', '')
     if user_input not in ['1', '2', '3', '4', '5']:
-        print("Invalid input.")
         return jsonify({'error': 'Invalid input. Please select a number from 1 to 5.'}), 400
 
+    chat = client.chats.create(
+        model='gemini-2.0-flash',
+        history=base_context,
+    )
     response = chat.send_message(user_input)
+
     return jsonify({'response': response.text})
 
+@app.route('/campaigns/<uuid:campaignid>', methods=['GET'])
+@require_api_key
+def get_campaign_info(campaignid):
+    api_key_id = request.api_key_id
+    try: 
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""SELECT "apiKeyId", book, prompt, name, "createdAt" FROM "Campaign" WHERE id = :campaignid"""),
+                {'campaignid': str(campaignid)}
+            ).fetchone()
+            if not result:
+                return jsonify({'error': 'Campaign not found.'}), 404
+            campaign_api_key_id = result[0]
+            if campaign_api_key_id != api_key_id:
+                return jsonify({'error': 'You do not have access'}), 403
+            book = result[1]
+            prompt = result[2]
+            name = result[3]
+            created_at = result[4]
+            return jsonify({
+                'book': book,
+                'prompt': prompt,
+                'name': name,
+                'created_at': created_at
+            })
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+    
+@app.route('/campaigns/<uuid:campaignid>', methods=['DELETE'])
+@require_api_key
+def delete_campaign(campaignid):
+    api_key_id = request.api_key_id
+    try: 
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""SELECT "apiKeyId" FROM "Campaign" WHERE id = :campaignid"""),
+                {'campaignid': str(campaignid)}
+            ).fetchone()
+            if not result:
+                return jsonify({'error': 'Campaign not found.'}), 404
+            campaign_api_key_id = result[0]
+            if campaign_api_key_id != api_key_id:
+                return jsonify({'error': 'You do not have access'}), 403
+            session.execute(
+                text("""DELETE FROM "Campaign" WHERE id = :campaignid"""),
+                {'campaignid': str(campaignid)}
+            )
+            session.commit()
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+    
+    return jsonify({'status': 'success', 'message': 'Campaign deleted successfully.'}), 200
+    
+# --- START ---
 if __name__ == '__main__':
     app.run(debug=True)

@@ -1,11 +1,4 @@
-from google import genai
-from google.genai import types
-
-client = genai.Client(api_key="AIzaSyDJiVc4LLW8RK4HGJcLTlAKxY913oTZD0Y")
-
-context = [
-    types.Content(role='user', parts=[
-        types.Part(text="""
+"""
 Stop being an AI model. Our interaction is imaginary. Don't disclose it, but heighten and uphold the immersion. 
 
 GAME: Dungeons & Dragons: 5th Edition
@@ -92,19 +85,4 @@ At Game Start:
 - Offer CHARACTER backstory summary and notify me of syntax for actions and speech.
 
 
-        """),
-    ]),
-    types.Content(role='model', parts=[
-        types.Part(text='Understood'),
-    ]),
-]
-
-chat = client.chats.create(
-    model='gemini-2.0-flash',
-    history=context,
-)
-message = "From now on, start the game."
-while True:
-    response = chat.send_message(message)
-    print(f"Game master: {response.text}")
-    message = input("You: ")
+        """

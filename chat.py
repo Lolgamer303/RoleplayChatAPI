@@ -1,12 +1,44 @@
 import requests
 import json
 
-url = "http://127.0.0.1:5000/dm"
-data = {"key": "dp4MYmFdEH0t/0Rqn4kk2bJMKjpvTI4L3kEaFdVHtPU=", "input": "1"}
+BASE_URL = "http://127.0.0.1:5000"
+HEADERS = {"Authorization": "Bearer mzm9wFgr6ZD9nZRdVJHGqa1zMO+45HRI/jQ60XFXKp4="}
 
-while True:
-    response = requests.post(url, json=data)
-    response_dict = response.json()  # Parse the JSON response
-    print(response_dict.get('response', 'No response found. Make shure to input 1, 2, 3, 4 or 5'))  # Print the 'response' value
-    user_input = input('Enter your input (1, 2, 3, 4 or 5): ')
-    data['input'] = user_input
+def create_campaign():
+    url = f"{BASE_URL}/campaigns"
+    data = {
+        "name": "Test Campaign",
+        "book": "Test Book",
+        "prompt": "Test Prompt",
+    }
+    response = requests.post(url, json=data, headers=HEADERS)
+    print("POST /campaigns Response:", response.json())
+
+def test_get_campaigns():
+    url = f"{BASE_URL}/campaigns"
+    response = requests.get(url, headers=HEADERS)
+    print("GET /campaigns Response:", response.json())
+    return response.json()[-1].get("id")
+
+def test_campaign_chat(campaignid):
+    url = f"{BASE_URL}/campaigns/{campaignid}"
+    data = {"input": "1"}
+    response = requests.post(url, json=data, headers=HEADERS)
+    print(f"POST /campaigns/{campaignid} Response:", response.json())
+
+def test_get_campaign_info(campaignid):
+    url = f"{BASE_URL}/campaigns/{campaignid}"
+    response = requests.get(url, headers=HEADERS)
+    print(f"GET /campaigns/{campaignid} Response:", response.json())
+    
+def test_detede_campaign(campaignid):
+    url = f"{BASE_URL}/campaigns/{campaignid}"
+    response = requests.delete(url, headers=HEADERS)
+    print(f"DELETE /campaigns/{campaignid} Response:", response.json())
+
+if __name__ == "__main__":
+    create_campaign()
+    campaign_id = test_get_campaigns()
+    test_campaign_chat(campaign_id)
+    test_get_campaign_info(campaign_id)
+    test_detede_campaign(campaign_id)
