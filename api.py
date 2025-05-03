@@ -68,6 +68,33 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated
 
+# --- DATABSE STORE FUNCTIONS ---
+
+def storeChat(campaign_id, user_input, response):
+    try:
+        with Session(db.engine) as session:
+            # Check if the campaign exists
+            result = session.execute(
+                text("""SELECT id FROM "Campaign" WHERE id = :campaign_id"""),
+                {'campaign_id': str(campaign_id)}
+            ).fetchone()
+            if not result:
+                return jsonify({'error': 'Campaign not found.'}), 404
+            # Insert the new chat into the "Chat" table
+            new_chat = {
+                'message': user_input,
+                'response': response,
+                'campaignId': campaign_id
+            }
+            session.execute(
+                text("""INSERT INTO "Chat" (message, response, "campaignId") 
+                        VALUES (:message, :response, :campaignId)"""),
+                new_chat
+            )
+            session.commit()
+            return jsonify({'success': 'Chat stored successfully.'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # --- ROUTES ---
 
@@ -128,7 +155,7 @@ def campaign_chat(campaignid):
         with Session(db.engine) as session:
             result = session.execute(
                 text("""SELECT "apiKeyId" FROM "Campaign" WHERE id = :campaignid"""),
-                {'campaignid': str(campaignid)}  # Convert campaignid to a string
+                {'campaignid': str(campaignid)}
             ).fetchone()
             if not result:
                 return jsonify({'error': 'Campaign not found.'}), 404
@@ -137,7 +164,6 @@ def campaign_chat(campaignid):
                 return jsonify({'status': 'error', 'message': 'You do not have access.'}), 403
     except Exception as e:
         return jsonify({'error': f"Database error: {e}"}), 500
-    
     user_input = request.json.get('input', '')
     if user_input not in ['1', '2', '3', '4', '5']:
         return jsonify({'error': 'Invalid input. Please select a number from 1 to 5.'}), 400
@@ -147,6 +173,8 @@ def campaign_chat(campaignid):
         history=base_context,
     )
     response = chat.send_message(user_input)
+
+    storeChat(campaignid, user_input, response.text)
 
     return jsonify({'response': response.text})
 

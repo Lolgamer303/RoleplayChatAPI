@@ -2,7 +2,7 @@ import requests
 import json
 
 BASE_URL = "http://127.0.0.1:5000"
-HEADERS = {"Authorization": "Bearer mzm9wFgr6ZD9nZRdVJHGqa1zMO+45HRI/jQ60XFXKp4="}
+HEADERS = {"Authorization": "Bearer zXr6kqofaR0uNWBQ5KUceUmm88Rw7+C41tzrSPZyWmc="}
 
 def create_campaign():
     url = f"{BASE_URL}/campaigns"
@@ -41,4 +41,3 @@ if __name__ == "__main__":
     campaign_id = test_get_campaigns()
     test_campaign_chat(campaign_id)
     test_get_campaign_info(campaign_id)
-    test_detede_campaign(campaign_id)
