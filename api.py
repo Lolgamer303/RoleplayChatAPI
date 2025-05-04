@@ -102,19 +102,29 @@ def storeChat(campaign_id, user_input, response):
 @require_api_key
 def get_campaigns():
     api_key_id = request.api_key_id
+    userId = request.args.get('userId', None)  # Optional field
 
     try:
         with Session(db.engine) as session:
-            result = session.execute(
-                text("""SELECT id, name FROM "Campaign" WHERE "apiKeyId" = :id"""),
-                {'id': api_key_id}
-            ).fetchall()
+            if userId:
+                # If userId is provided, filter by it
+                result = session.execute(
+                    text("""SELECT id, name FROM "Campaign" WHERE "apiKeyId" = :id AND "userId" = :userId"""),
+                    {'id': api_key_id, 'userId': userId}
+                ).fetchall()
+            else:
+                # If userId is not provided, ignore the "userId" condition
+                result = session.execute(
+                    text("""SELECT id, name FROM "Campaign" WHERE "apiKeyId" = :id"""),
+                    {'id': api_key_id}
+                ).fetchall()
             campaigns = [{'id': str(row[0]), 'name': row[1]} for row in result]
     except Exception as e:
+        print(f"Error fetching campaigns: {e}")
         return jsonify({'error': f"Database error: {e}"}), 500
-    
+
     if len(campaigns) == 0:
-        return jsonify({'message': 'You have no campaigns yet.'})
+        return jsonify({'message': 'You have no campaigns yet.'}), 204
     return jsonify(campaigns)
 
 @app.route('/campaigns', methods=['POST'])
@@ -124,6 +134,8 @@ def create_campaign():
     name = request.json.get('name', '')
     book = request.json.get('book', '')
     prompt = request.json.get('prompt', default_prompt)
+    
+    userId = request.json.get('userId', None) # Optional field
 
     if not name or not book or not prompt:
         return jsonify({'error': 'Missing required fields.'}), 400
@@ -135,14 +147,17 @@ def create_campaign():
                 'name': name,
                 'book': book,
                 'prompt': prompt,
+                'userId': userId,  # Optional field
                 'apiKeyId': api_key_id
             }
             session.execute(
-                text("""INSERT INTO "Campaign" (id, name, book, prompt, "apiKeyId") VALUES (:id, :name, :book, :prompt, :apiKeyId)"""),
+                text("""INSERT INTO "Campaign" (id, name, book, prompt, "userId", "apiKeyId") 
+                    VALUES (:id, :name, :book, :prompt, :userId, :apiKeyId)"""),
                 new_campaign
             )
             session.commit()
     except Exception as e:
+        print(f"Error creating campaign: {e}")
         return jsonify({'error': f"Database error: {e}"}), 500
     
     return jsonify({'status': 'success', 'message': 'Campaign created successfully.'}), 201
@@ -161,7 +176,7 @@ def campaign_chat(campaignid):
                 return jsonify({'error': 'Campaign not found.'}), 404
             campaign_api_key_id = result[0]
             if campaign_api_key_id != api_key_id:
-                return jsonify({'status': 'error', 'message': 'You do not have access.'}), 403
+                return jsonify({'status': 'error', 'message': 'You do not have access.'}), 401
     except Exception as e:
         return jsonify({'error': f"Database error: {e}"}), 500
     user_input = request.json.get('input', '')
@@ -192,7 +207,7 @@ def get_campaign_info(campaignid):
                 return jsonify({'error': 'Campaign not found.'}), 404
             campaign_api_key_id = result[0]
             if campaign_api_key_id != api_key_id:
-                return jsonify({'error': 'You do not have access'}), 403
+                return jsonify({'error': 'You do not have access'}), 401
             book = result[1]
             prompt = result[2]
             name = result[3]
@@ -205,6 +220,33 @@ def get_campaign_info(campaignid):
             })
     except Exception as e:
         return jsonify({'error': f"Database error: {e}"}), 500
+    
+@app.route('/campaigns/<uuid:campaignid>', methods=['PUT'])
+@require_api_key
+def edit_campaign_info(campaignid):
+    api_key_id = request.api_key_id
+    name = request.json.get('name', None)
+
+    try:
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""SELECT "apiKeyId" FROM "Campaign" WHERE id = :campaignid"""),
+                {'campaignid': str(campaignid)}
+            ).fetchone()
+            if not result:
+                return jsonify({'error': 'Campaign not found.'}), 404
+            campaign_api_key_id = result[0]
+            if campaign_api_key_id != api_key_id:
+                return jsonify({'error': 'You do not have access'}), 401
+            if name:
+                session.execute(
+                    text("""UPDATE "Campaign" SET name = :name WHERE id = :campaignid"""),
+                    {'name': name, 'campaignid': str(campaignid)}
+                )
+                session.commit()
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+    return jsonify({'status': 'success', 'message': 'Campaign updated successfully.'}), 200
     
 @app.route('/campaigns/<uuid:campaignid>', methods=['DELETE'])
 @require_api_key
@@ -220,7 +262,7 @@ def delete_campaign(campaignid):
                 return jsonify({'error': 'Campaign not found.'}), 404
             campaign_api_key_id = result[0]
             if campaign_api_key_id != api_key_id:
-                return jsonify({'error': 'You do not have access'}), 403
+                return jsonify({'error': 'You do not have access'}), 401
             session.execute(
                 text("""DELETE FROM "Campaign" WHERE id = :campaignid"""),
                 {'campaignid': str(campaignid)}

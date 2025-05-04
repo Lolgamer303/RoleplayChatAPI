@@ -41,3 +41,4 @@ if __name__ == "__main__":
     campaign_id = test_get_campaigns()
     test_campaign_chat(campaign_id)
     test_get_campaign_info(campaign_id)
+    test_detede_campaign(campaign_id)
