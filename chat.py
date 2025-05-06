@@ -31,6 +31,16 @@ def test_get_campaign_info(campaignid):
     response = requests.get(url, headers=HEADERS)
     print(f"GET /campaigns/{campaignid} Response:", response.json())
     
+def test_get_campaign_chats(campaignid):
+    url = f"{BASE_URL}/campaigns/{campaignid}/chats"
+    response = requests.get(url, headers=HEADERS)
+    print(f"GET /campaigns/{campaignid}/chat Response:", response.json())
+    
+def test_delete_campaign_chat(campaignid):
+    url = f"{BASE_URL}/campaigns/{campaignid}/chats"
+    response = requests.delete(url, headers=HEADERS)
+    print(f"DELETE /campaigns/{campaignid}/chats Response:", response.json())
+    
 def test_detede_campaign(campaignid):
     url = f"{BASE_URL}/campaigns/{campaignid}"
     response = requests.delete(url, headers=HEADERS)
@@ -41,4 +51,6 @@ if __name__ == "__main__":
     campaign_id = test_get_campaigns()
     test_campaign_chat(campaign_id)
     test_get_campaign_info(campaign_id)
+    test_get_campaign_chats(campaign_id)
+    test_delete_campaign_chat(campaign_id)
     test_detede_campaign(campaign_id)

@@ -32,6 +32,7 @@ with open('default_prompt.txt', 'r') as file:
 base_context = [
     types.Content(role='user', parts=[types.Part(text=default_prompt)]),
     types.Content(role='model', parts=[types.Part(text='Understood')]),
+    types.Content(role='user', parts=[types.Part(text='start')]),
 ]
 
 # --- API KEY AUTH (NOW FROM HEADER) ---
@@ -152,7 +153,7 @@ def create_campaign():
             }
             session.execute(
                 text("""INSERT INTO "Campaign" (id, name, book, prompt, "userId", "apiKeyId") 
-                    VALUES (:id, :name, :book, :prompt, :userId, :apiKeyId)"""),
+                        VALUES (:id, :name, :book, :prompt, :userId, :apiKeyId)"""),
                 new_campaign
             )
             session.commit()
@@ -166,8 +167,11 @@ def create_campaign():
 @require_api_key
 def campaign_chat(campaignid):
     api_key_id = request.api_key_id
-    try: 
+    user_input = request.json.get('input', '')
+
+    try:
         with Session(db.engine) as session:
+            # Step 1: Validate the campaign
             result = session.execute(
                 text("""SELECT "apiKeyId" FROM "Campaign" WHERE id = :campaignid"""),
                 {'campaignid': str(campaignid)}
@@ -176,22 +180,45 @@ def campaign_chat(campaignid):
                 return jsonify({'error': 'Campaign not found.'}), 404
             campaign_api_key_id = result[0]
             if campaign_api_key_id != api_key_id:
-                return jsonify({'status': 'error', 'message': 'You do not have access.'}), 401
+                return jsonify({'error': 'You do not have access.'}), 401
+
+            # Step 2: Load the chat history for the campaign
+            history_result = session.execute(
+                text("""SELECT message, response FROM "Chat" WHERE "campaignId" = :campaignid ORDER BY "createdAt" ASC"""),
+                {'campaignid': str(campaignid)}
+            ).fetchall()
+
+            # Step 3: Build the history for the AI
+            history = []
+            for row in history_result:
+                history.append(types.Content(role='user', parts=[types.Part(text=row[0])]))
+                history.append(types.Content(role='model', parts=[types.Part(text=row[1])]))
+
+            # Step 4: Add the default context if no history exists
+            if not history:
+                history = base_context
+                # Send only the base context to the AI and ignore the first user input
+                chat = client.chats.create(
+                    model='gemini-2.0-flash',
+                    history=history,
+                )
+                response = chat.send_message("")  # Empty input to process only the base context
+            else:
+                # Step 5: Send the user's input to the AI
+                chat = client.chats.create(
+                    model='gemini-2.0-flash',
+                    history=history,
+                )
+                response = chat.send_message(user_input)
+
+            # Step 6: Store the new chat in the database
+            storeChat(campaignid, user_input, response.text)
+
+            # Step 7: Return the AI's response
+            return jsonify({'response': response.text})
+
     except Exception as e:
         return jsonify({'error': f"Database error: {e}"}), 500
-    user_input = request.json.get('input', '')
-    if user_input not in ['1', '2', '3', '4', '5']:
-        return jsonify({'error': 'Invalid input. Please select a number from 1 to 5.'}), 400
-
-    chat = client.chats.create(
-        model='gemini-2.0-flash',
-        history=base_context,
-    )
-    response = chat.send_message(user_input)
-
-    storeChat(campaignid, user_input, response.text)
-
-    return jsonify({'response': response.text})
 
 @app.route('/campaigns/<uuid:campaignid>', methods=['GET'])
 @require_api_key
@@ -272,6 +299,91 @@ def delete_campaign(campaignid):
         return jsonify({'error': f"Database error: {e}"}), 500
     
     return jsonify({'status': 'success', 'message': 'Campaign deleted successfully.'}), 200
+
+@app.route('/campaigns/<uuid:campaignid>/chats', methods=['GET'])
+@require_api_key
+def get_chats(campaignid):
+    api_key_id = request.api_key_id
+    number = request.args.get('number', type=int)  # Optional field
+    
+    try: 
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""SELECT "apiKeyId" FROM "Campaign" WHERE id = :campaignid"""),
+                {'campaignid': str(campaignid)}
+            ).fetchone()
+            if not result:
+                return jsonify({'error': 'Campaign not found.'}), 404
+            campaign_api_key_id = result[0]
+            if campaign_api_key_id != api_key_id:
+                return jsonify({'error': 'You do not have access'}), 401
+
+            # Fetch the chats for the campaign
+            if number:
+                result = session.execute(
+                    text("""SELECT message, response FROM "Chat" WHERE "campaignId" = :campaignid ORDER BY "createdAt" DESC LIMIT :number"""),
+                    {'campaignid': str(campaignid), 'number': number}
+                ).fetchall()
+            else:
+                result = session.execute(
+                    text("""SELECT message, response FROM "Chat" WHERE "campaignId" = :campaignid ORDER BY "createdAt" DESC"""),
+                    {'campaignid': str(campaignid)}
+                ).fetchall()
+
+            chats = [{'message': row[0], 'response': row[1]} for row in result]
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+
+    if len(chats) == 0:
+        return jsonify({'message': 'No chats found for this campaign.'}), 204
+    return jsonify(chats)
+    
+@app.route('/campaigns/<uuid:campaignid>/chats', methods=['DELETE'])
+@require_api_key
+def delete_chats(campaignid):
+    api_key_id = request.api_key_id
+    number = request.args.get('number', type=int)  # Optional field
+
+    try:
+        with Session(db.engine) as session:
+            result = session.execute(
+                text("""SELECT "apiKeyId" FROM "Campaign" WHERE id = :campaignid"""),
+                {'campaignid': str(campaignid)}
+            ).fetchone()
+            if not result:
+                return jsonify({'error': 'Campaign not found.'}), 404
+            campaign_api_key_id = result[0]
+            if campaign_api_key_id != api_key_id:
+                return jsonify({'error': 'You do not have access'}), 401
+
+            # Delete the chats for the campaign
+            if number:
+                session.execute(
+                    text("""DELETE FROM "Chat" WHERE "campaignId" = :campaignid ORDER BY "createdAt" DESC LIMIT :number"""),
+                    {'campaignid': str(campaignid), 'number': number}
+                )
+            else:
+                session.execute(
+                    text("""DELETE FROM "Chat" WHERE "campaignId" = :campaignid"""),
+                    {'campaignid': str(campaignid)}
+                )
+            session.commit()
+
+            # Reset the AI's history to the base context
+            session.execute(
+                text("""INSERT INTO "Chat" (message, response, "campaignId") 
+                        VALUES (:message, :response, :campaignId)"""),
+                {
+                    'message': default_prompt,
+                    'response': 'Understood',
+                    'campaignId': str(campaignid)
+                }
+            )
+            session.commit()
+    except Exception as e:
+        return jsonify({'error': f"Database error: {e}"}), 500
+
+    return jsonify({'status': 'success', 'message': 'Chats deleted and history reset successfully.'}), 200
     
 # --- START ---
 if __name__ == '__main__':
