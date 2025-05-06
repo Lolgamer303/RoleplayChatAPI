@@ -168,6 +168,7 @@ def create_campaign():
 def campaign_chat(campaignid):
     api_key_id = request.api_key_id
     user_input = request.json.get('input', '')
+    print(f"User input: {user_input}")
 
     try:
         with Session(db.engine) as session:
@@ -184,32 +185,25 @@ def campaign_chat(campaignid):
 
             # Step 2: Load the chat history for the campaign
             history_result = session.execute(
-                text("""SELECT message, response FROM "Chat" WHERE "campaignId" = :campaignid ORDER BY "createdAt" ASC"""),
+                text("""SELECT message, response FROM "Chat" WHERE "campaignId" = :campaignid ORDER BY "createdAt" DESC"""),
                 {'campaignid': str(campaignid)}
             ).fetchall()
-
-            # Step 3: Build the history for the AI
-            history = []
-            for row in history_result:
-                history.append(types.Content(role='user', parts=[types.Part(text=row[0])]))
-                history.append(types.Content(role='model', parts=[types.Part(text=row[1])]))
-
-            # Step 4: Add the default context if no history exists
-            if not history:
+            
+            if not history_result:
                 history = base_context
                 # Send only the base context to the AI and ignore the first user input
-                chat = client.chats.create(
-                    model='gemini-2.0-flash',
-                    history=history,
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash', contents=history
                 )
-                response = chat.send_message("")  # Empty input to process only the base context
             else:
-                # Step 5: Send the user's input to the AI
-                chat = client.chats.create(
-                    model='gemini-2.0-flash',
-                    history=history,
+                history = []
+                for row in history_result:
+                    history.append(types.Content(role='user', parts=[types.Part(text=row[0])]))
+                    history.append(types.Content(role='model', parts=[types.Part(text=row[1])]))
+                    
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash', contents=history + [types.Content(role='user', parts=[types.Part(text=user_input)])]
                 )
-                response = chat.send_message(user_input)
 
             # Step 6: Store the new chat in the database
             storeChat(campaignid, user_input, response.text)
