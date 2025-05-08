@@ -156,6 +156,15 @@ def create_campaign():
                         VALUES (:id, :name, :book, :prompt, :userId, :apiKeyId)"""),
                 new_campaign
             )
+            session.execute(
+                text("""INSERT INTO "Chat" (message, response, "campaignId") 
+                        VALUES (:message, :response, :campaignId)"""),
+                {
+                    'message': default_prompt,
+                    'response': 'Understood',
+                    'campaignId': new_campaign['id']
+                }
+            )
             session.commit()
     except Exception as e:
         print(f"Error creating campaign: {e}")
