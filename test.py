@@ -21,10 +21,17 @@ def test_get_campaigns():
     return response.json()[-1].get("id")
 
 def test_campaign_chat(campaignid):
-    url = f"{BASE_URL}/campaigns/{campaignid}"
+    url = f"{BASE_URL}/campaigns/{campaignid}/chats"
     data = {"input": "1"}
     response = requests.post(url, json=data, headers=HEADERS)
-    print(f"POST /campaigns/{campaignid} Response:", response.json())
+    response2 = requests.post(url, json=data, headers=HEADERS)
+    requests.post(url, json=data, headers=HEADERS)
+    requests.post(url, json=data, headers=HEADERS)
+    requests.post(url, json=data, headers=HEADERS)
+    requests.post(url, json=data, headers=HEADERS)
+    requests.post(url, json=data, headers=HEADERS)
+    requests.post(url, json=data, headers=HEADERS)
+    print(f"POST /campaigns/{campaignid} Response:", response.json(), response2.json())
 
 def test_get_campaign_info(campaignid):
     url = f"{BASE_URL}/campaigns/{campaignid}"
@@ -38,10 +45,11 @@ def test_get_campaign_chats(campaignid):
     
 def test_delete_campaign_chat(campaignid):
     url = f"{BASE_URL}/campaigns/{campaignid}/chats"
-    response = requests.delete(url, headers=HEADERS)
+    params = {'count': 1}  # Pass the count parameter here
+    response = requests.delete(url, headers=HEADERS, params=params)
     print(f"DELETE /campaigns/{campaignid}/chats Response:", response.json())
     
-def test_detede_campaign(campaignid):
+def test_delete_campaign(campaignid):
     url = f"{BASE_URL}/campaigns/{campaignid}"
     response = requests.delete(url, headers=HEADERS)
     print(f"DELETE /campaigns/{campaignid} Response:", response.json())
@@ -53,4 +61,4 @@ if __name__ == "__main__":
     test_get_campaign_info(campaign_id)
     test_get_campaign_chats(campaign_id)
     test_delete_campaign_chat(campaign_id)
-    test_detede_campaign(campaign_id)
+    test_delete_campaign(campaign_id)
